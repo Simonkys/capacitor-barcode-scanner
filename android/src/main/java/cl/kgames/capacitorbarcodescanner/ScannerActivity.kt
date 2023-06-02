@@ -1,55 +1,56 @@
 package cl.kgames.capacitorbarcodescanner
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.DisplayMetrics
 import android.util.Log
-import android.view.Window
-import androidx.camera.core.*
+import android.view.View
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
+import androidx.camera.core.AspectRatio
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.common.InputImage
-import java.lang.Math.*
-import java.util.concurrent.Executors
-import android.content.Intent
-import android.view.View
-import android.view.animation.Animation
-import android.view.animation.AnimationUtils
-import com.google.mlkit.vision.barcode.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
+import java.util.concurrent.Executors
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
-
-class ScannerActivity : AppCompatActivity() {
-
+@ExperimentalGetImage class ScannerActivity : AppCompatActivity() {
+    
     private var previewView: PreviewView? = null
     private var cameraProvider: ProcessCameraProvider? = null
-    private var cameraSelector: CameraSelector? = null
     private var lensFacing = CameraSelector.LENS_FACING_BACK
+    private var cameraSelector: CameraSelector? = null
     private var previewUseCase: Preview? = null
     private var analysisUseCase: ImageAnalysis? = null
 
-    private var resultCode:String = ""
+    private var resultCode: String = ""
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scanner)
         setupCamera()
-        val aniSlide: Animation =
-            AnimationUtils.loadAnimation(this@ScannerActivity, R.anim.scanner_animation)
-        var barLine: View = findViewById(R.id.barcode_line)
-        barLine.startAnimation(aniSlide)
+        val aniSlide: Animation = AnimationUtils.loadAnimation(this@ScannerActivity, R.anim.scanner_animation)
+        val barLine: View = findViewById(R.id.barcode_line)
+        barLine.animation = aniSlide
     }
-
 
     override fun finish() {
         val data = Intent()
@@ -59,10 +60,9 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun closeActivity(value:String){
-        resultCode = value;
+        resultCode = value
         finish()
     }
-
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -79,22 +79,15 @@ class ScannerActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
-    private fun isCameraPermissionGranted(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            baseContext,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
-    }
 
     private fun setupCamera() {
         previewView = findViewById(R.id.preview_view)
         cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
-
         ViewModelProvider(
             this, ViewModelProvider.AndroidViewModelFactory.getInstance(application)
-        ).get(CameraXViewModel::class.java)
+        )[CameraXViewModel::class.java]
             .processCameraProvider
-            .observe(this, Observer { provider: ProcessCameraProvider?->
+            .observe(this) { provider: ProcessCameraProvider? ->
                 cameraProvider = provider
                 if (isCameraPermissionGranted()) {
                     bindCameraUseCases()
@@ -106,11 +99,21 @@ class ScannerActivity : AppCompatActivity() {
                     )
                 }
             }
-            )
+    }
+
+    private fun isCameraPermissionGranted(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            baseContext, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun bindCameraUseCases() {
+        bindPreviewUserCase()
+        bindAnalyseUseCase()
     }
 
 
-    private fun bindPreviewUseCase() {
+    private fun bindPreviewUserCase() {
         if (cameraProvider == null) {
             return
         }
@@ -120,12 +123,13 @@ class ScannerActivity : AppCompatActivity() {
 
         previewUseCase = Preview.Builder()
             .setTargetAspectRatio(screenAspectRatio)
-            .setTargetRotation(getWindowManager().getDefaultDisplay().getRotation())
+            .setTargetRotation(windowManager.defaultDisplay.rotation)
             .build()
-        previewUseCase!!.setSurfaceProvider(previewView!!.createSurfaceProvider())
+
+        previewUseCase!!.setSurfaceProvider(previewView!!.surfaceProvider)
 
         try {
-            cameraProvider!!.bindToLifecycle(/* lifecycleOwner= */this,
+            cameraProvider!!.bindToLifecycle(/* lifecycleOwner = */this,
                 cameraSelector!!,
                 previewUseCase
             )
@@ -134,18 +138,12 @@ class ScannerActivity : AppCompatActivity() {
         }
     }
 
-    private fun bindCameraUseCases() {
-        bindPreviewUseCase()
-        bindAnalyseUseCase()
-    }
-
     private fun bindAnalyseUseCase() {
-
         val options = BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(
-                        Barcode.FORMAT_QR_CODE,
-                        Barcode.FORMAT_CODE_128)
-                .build()
+            .setBarcodeFormats(
+                Barcode.FORMAT_QR_CODE,
+                Barcode.FORMAT_CODE_128)
+            .build()
 
         val barcodeScanner: BarcodeScanner = BarcodeScanning.getClient(options)
 
@@ -159,21 +157,20 @@ class ScannerActivity : AppCompatActivity() {
 
         analysisUseCase = ImageAnalysis.Builder()
             .setTargetAspectRatio(screenAspectRatio)
-            .setTargetRotation(getWindowManager().getDefaultDisplay().getRotation())
+            .setTargetRotation(windowManager.defaultDisplay.rotation)
             .build()
 
         val cameraExecutor = Executors.newSingleThreadExecutor()
 
         analysisUseCase?.setAnalyzer(
-            cameraExecutor,
-            ImageAnalysis.Analyzer { imageProxy ->
-                processImageProxy(barcodeScanner, imageProxy)
-            }
-        )
+            cameraExecutor
+        ) { imageProxy ->
+            processImageProxy(barcodeScanner, imageProxy)
+        }
 
         try {
             cameraProvider!!.bindToLifecycle(
-                /* lifecycleOwner= */this,
+                /* lifecycleOwner = */this,
                 cameraSelector!!,
                 analysisUseCase
             )
@@ -184,18 +181,14 @@ class ScannerActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("UnsafeExperimentalUsageError")
-    private fun processImageProxy(
-        barcodeScanner: BarcodeScanner,
-        imageProxy: ImageProxy
-    ) {
+    private fun processImageProxy(barcodeScanner: BarcodeScanner, imageProxy: ImageProxy){
         val inputImage =
             InputImage.fromMediaImage(imageProxy.image!!, imageProxy.imageInfo.rotationDegrees)
 
         barcodeScanner.process(inputImage)
             .addOnSuccessListener { barcodes ->
                 if(barcodes.size > 0){
-                    var code = barcodes[0]
+                    val code = barcodes[0]
                     closeActivity(code.rawValue!!)
                 }
             }
@@ -205,8 +198,6 @@ class ScannerActivity : AppCompatActivity() {
                 imageProxy.close()
             }
     }
-
-
 
     private val screenAspectRatio: Int
         get() {
